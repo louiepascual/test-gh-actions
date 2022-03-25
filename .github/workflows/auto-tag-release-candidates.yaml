@@ -1,0 +1,45 @@
+#
+# The following workflow will automatically bump and push a tag, build a dynamic changelog, and publish a release of this.
+# The following comments are context for our particular use case, but provide information about the various settings that were required.
+#
+name: tag_and_release
+on:
+  pull_request:
+    types: [closed]
+jobs:
+  push_tag_and_new_release:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && github.ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+        with:
+          fetch-depth: 0
+
+      - name: Bump the version and push the tag
+        id: bump_tag # ID needs to be set, so we can reference this step's output later for the release.
+        uses: ivanpk/github-tag-action@patch-prerelease # Currently my patch is required, due to a bug in finding pre_release tags and bumping them.
+        env:
+          DEFAULT_BUMP: patch # What version core to bump.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WITH_V: true # Prefix the tags with `v`
+          RELEASE_BRANCHES: release # If a PR is against any other branch, signals it is a prerelease candidate. Since we limit the job to just main, it will only produce prereleases automatically.
+          TAG_CONTEXT: repo # If it should look in the branch or repo for tag context.
+          PRERELEASE_SUFFIX: rc # The suffix to utilize for our tags.
+          VERBOSE: true # Set to true for easier debugging during setup.
+
+      - name: Build Changelog
+        id: build_changelog # ID needs to be set, so we can reference this step's output later for the release.
+        uses: mikepenz/release-changelog-builder-action@v2.1.0
+        with:
+          configuration: ".github/workflows/release-changelog-config.json" # Added a custom config, so it will handle PRs that have no labels. We don't use labels so it would not work otherwise.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Release
+        uses: actions/create-release@v1
+        with:
+          tag_name: ${{ steps.bump_tag.outputs.new_tag }} # The new tag we created earlier.
+          release_name: ${{ steps.bump_tag.outputs.new_tag }} # The new tag we created earlier.
+          body: ${{steps.build_changelog.outputs.changelog}} # The release changelog we generated earlier.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
